@@ -7,8 +7,10 @@ A = 6.0
 B = 0.15
 C = 0.58
 Uoo = 4.0
-Upp = 2.0
+Upp = 4.0
 pressures = [0, 4, 8, 16, 29.5]
+# 在这里, 用列表[value1, value2, value3, value4, value5]分别表示
+# 在0GPa, 4GPa, 8GPa, 16GPa, 29.5GPa下的参数
 eds = {'d3z2r2': [0.046, 0.054, 0.060, 0.072, 0.095],
        'dx2y2': [0.0 for _ in range(5)],
        'dxy': [0.823, 0.879, 0.920, 0.997, 1.06],
@@ -24,7 +26,7 @@ Norb = 4
 if Norb == 4:
     O1_orbs = ['px']
     O2_orbs = ['py']
-    Obilayer_orbs = ['apz']
+    apO_orbs = ['apz']
     O_orbs = O1_orbs + O2_orbs
     Ni_orbs = ['d3z2r2', 'dx2y2']
 num_vals = 10

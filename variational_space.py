@@ -1,91 +1,25 @@
+from itertools import permutations, product, combinations
 import parameters as pam
-import energy
-
-type_range = energy.type_energy_limit
+from energy_level import low_energy_dist
 
 hole_num = pam.hole_num
 # 各种原子轨道数
 Ni_orbs = pam.Ni_orbs
 O1_orbs = pam.O1_orbs
 O2_orbs = pam.O2_orbs
-Obilayer_orbs = pam.Obilayer_orbs
+O_orbs = pam.O_orbs
+ap_orbs = pam.apO_orbs
 
 # 各种原子位置
 Ni_position = [(-1, 0, 1), (-1, 0, -1), (1, 0, -1), (1, 0, 1)]
 O1_position = [(-2, 0, 1), (0, 0, 1), (2, 0, 1), (-2, 0, -1), (0, 0, -1), (2, 0, -1)]
 O2_position = [(-1, 1, 1), (-1, -1, 1), (1, 1, 1), (1, -1, 1),
                (-1, 1, -1), (-1, -1, -1), (1, 1, -1), (1, -1, -1)]
+O_position = O1_position + O2_position
 Obilayer_position = [(-1, 0, 0), (1, 0, 0)]
 
-
-def product(*args, repeat=1, nesting=False):
-    # 计算重复的池（输入池扩展到 repeat 次）
-    pools = [tuple(pool) * repeat for pool in args]
-    pool_size = len(pools)
-    # 每次生成组合，使用生成器返回
-    indices = [0] * pool_size
-    while True:
-        # 生成并展平当前组合
-        flat_product = []
-        for i in range(pool_size):
-            item = pools[i][indices[i]]
-            if nesting:
-                if any(isinstance(t, tuple) for t in item):
-                    flat_product.extend(item)
-                else:
-                    flat_product.append(item)
-            else:
-                if isinstance(item, tuple):
-                    flat_product.extend(item)
-                else:
-                    flat_product.append(item)
-        yield tuple(flat_product)
-
-        # 更新索引，模拟进位
-        for i in reversed(range(len(indices))):
-            indices[i] += 1
-            if indices[i] == len(pools[i]):
-                indices[i] = 0
-            else:
-                break
-        else:
-            break
-
-
-def combinations(iterable, r):
-    """
-    indices 列表用来记录当前组合中元素的索引。初始时，它包含从 0 到 r-1 的索引。
-    在每次生成一个组合后，通过修改 indices 来生成下一个组合，直到所有组合都被生成
-    :param iterable: 初始元组
-    :param r: 挑选的个数
-    :return: 生成长度为r的组合(元组类型)
-    """
-    if r == 1:
-        yield from iterable
-        return
-    n = len(iterable)
-
-    # 如果 r > n，返回一个空的迭代器
-    if r > n:
-        return iter([])
-    # 初始化 indices 为 [0, 1, 2, ..., r-1]
-    indices = list(range(r))
-
-    while True:
-        yield tuple(iterable[i] for i in indices)
-        # 从右往左检查是否可以增加索引
-        for i in reversed(range(r)):
-            if indices[i] != i + n - r:
-                break
-        else:
-            return
-
-        # 递增当前索引
-        indices[i] += 1
-
-        # 更新后续索引
-        for j in range(i + 1, r):
-            indices[j] = indices[j - 1] + 1
+# 10空穴类型, 用((Ni0_num, Ni1_num, Ni2_num, Ni3_num), Obilayer_num, O_num)表示
+# 其中Obilayer_num和O_num只考虑一个位置最多只有一个空穴的情况
 
 
 def create_lookup_tbl():
@@ -94,38 +28,129 @@ def create_lookup_tbl():
     :return: O_states: 只有一个空穴在O上的态, Ni_states: 只有一个空穴在Ni上的态
     states_one: 一个空穴的态, lookup_tbl: 排序过后的态列表, 包含多个空穴的所有态
     """
-    Ni_hole = {}
-    for i in range(len(Ni_position)):
-        position = Ni_position[i]
-        hole = product((position,), Ni_orbs, ['up', 'dn'])
-        Ni_hole[i] = list(hole)
+    def Ni_part(Ni_dist):
+        """
+        用来拼接4个Ni的空穴
+        :return: 输出一个元组，包含4个Ni的空穴的态
+        """
+        Ni_orb_s = product(Ni_orbs, ['dn', 'up'])
+        Ni_orb_s = tuple(Ni_orb_s)
+        Ni0_part = []
+        Ni1_part = []
+        Ni2_part = []
+        Ni3_part = []
+        for i, Ni_num in enumerate(Ni_dist):
+            position = Ni_position[i]
+            if Ni_num == 0:
+                continue
+            for orb_s in combinations(Ni_orb_s, Ni_num):
+                oneNi_hole = tuple((*position, orb, s) for orb, s in orb_s)
+                if i == 0:
+                    Ni0_part.append(oneNi_hole)
+                elif i == 1:
+                    Ni1_part.append(oneNi_hole)
+                elif i == 2:
+                    Ni2_part.append(oneNi_hole)
+                else:
+                    Ni3_part.append(oneNi_hole)
+        Ni0_Ni1_Ni2_Ni3 = product(Ni0_part, Ni1_part, Ni2_part, Ni3_part)
+        for Ni0_hole, Ni1_hole, Ni2_hole, Ni3_hole in Ni0_Ni1_Ni2_Ni3:
+            yield Ni0_hole + Ni1_hole + Ni2_hole + Ni3_hole
 
-    O1_hole = product(O1_position, O1_orbs, ['up', 'dn'])
-    O2_hole = product(O2_position, O2_orbs, ['up', 'dn'])
-    O_hole = list(O1_hole) + list(O2_hole)
+    def apO_part(num):
+        """
+        用来拼接层间O的空穴
+        :param num: 在层间O上的空穴数量
+        :return:
+        """
+        assert num != 0, "num should not be 0"
+        if num == 1:
+            for position, orb, s in product(Obilayer_position, ap_orbs, ['dn', 'up']):
+                yield *position, orb, s
+        else:
+            for orbs in product(ap_orbs, repeat=num):
+                for ss in product(['dn', 'up'], repeat=num):
+                    hole = []
+                    for i in range(num):
+                        position = Obilayer_position[i]
+                        orb = orbs[i]
+                        s = ss[i]
+                        hole.append((*position, orb, s))
+                    yield tuple(hole)
 
-    Obilayer_hole = product(Obilayer_position, Obilayer_orbs, ['up', 'dn'])
-    Obilayer_hole = list(Obilayer_hole)
+    def O_part(num):
+        """
+        用来拼接层内的空穴
+        :param num: 在层内O上的空穴数量
+        :return:
+        """
+        assert num != 0, "number should not be 0"
+        assert num < 3, "could not compute the number"
+        if num == 1:
+            for position, orb, s in product(O1_position, O1_orbs,  ['dn', 'up']):
+                yield *position, orb, s
+            for position, orb, s in product(O2_position, O2_orbs, ['dn', 'up']):
+                yield *position, orb, s
+        elif num == 2:
+            for positions in combinations(O1_position, num):
+                for orbs in product(O1_orbs, repeat=num):
+                    for ss in product(['dn', 'up'], repeat=num):
+                        hole = []
+                        for i in range(num):
+                            position = positions[i]
+                            orb = orbs[i]
+                            s = ss[i]
+                            hole.append((*position, orb, s))
+                        yield tuple(hole)
+            for positions in combinations(O2_position, num):
+                for orbs in product(O2_orbs, repeat=num):
+                    for ss in product(['dn', 'up'], repeat=num):
+                        hole = []
+                        for i in range(num):
+                            position = positions[i]
+                            orb = orbs[i]
+                            s = ss[i]
+                            hole.append((*position, orb, s))
+                        yield tuple(hole)
+            for positions in product(O1_position, O2_position):
+                for orbs in product(O1_orbs, O2_orbs):
+                    for ss in product(['dn', 'up'], repeat=num):
+                        hole = []
+                        for i in range(num):
+                            position = positions[i]
+                            orb = orbs[i]
+                            s = ss[i]
+                            hole.append((*position, orb, s))
+                        yield tuple(hole)
 
-    state_list = []
-    for type_range_ in type_range:
-        Ni_num = type_range_[0]
-        Obilayer_num = type_range_[1]
-        O_num = type_range_[2]
-        multi_hole = {}
-        for i, num in enumerate(Ni_num):
-            multi_hole[f'Ni{i}'] = combinations(Ni_hole[i], num)
-        if O_num != 0:
-            multi_hole['O'] = combinations(O_hole, O_num)
-        if Obilayer_num != 0:
-            multi_hole['Obilayer'] = combinations(Obilayer_hole, Obilayer_num)
-        multi_hole = product(*multi_hole.values(), nesting=True)
-        multi_hole = list(multi_hole)
-        state_list.extend(multi_hole)
-    dim = len(state_list)
-    print(dim)
-    for hole in state_list:
-        print(hole)
+    # 输出所有的态
+    states = []
+    for hole_type in low_energy_dist:
+        Ni_dist_set, apO_num, O_num = hole_type
+        Ni_dist_set = permutations(Ni_dist_set)
+        Ni_dist_set = set(Ni_dist_set)
+        for Ni_dist in Ni_dist_set:
+            if apO_num == 0 and O_num == 0:
+                for Ni_hole in Ni_part(Ni_dist):
+                    # print(Ni_hole)
+                    states.append(Ni_hole)
+            elif apO_num != 0 and O_num == 0:
+                for Ni_hole in Ni_part(Ni_dist):
+                    for apO_hole in apO_part(apO_num):
+                        # print(Ni_hole + apO_hole)
+                        states.append(Ni_hole + apO_hole)
+            elif apO_num == 0 and O_num != 0:
+                for Ni_hole in Ni_part(Ni_dist):
+                    for O_hole in O_part(O_num):
+                        # print(Ni_hole + O_hole)
+                        states.append(Ni_hole + O_hole)
+            else:
+                for Ni_hole in Ni_part(Ni_dist):
+                    for apO_hole in apO_part(apO_num):
+                        for O_hole in O_part(O_num):
+                            # print(Ni_hole + apO_hole + O_hole)
+                            states.append(Ni_hole + apO_hole + O_hole)
+    print(len(states))
 
 
 create_lookup_tbl()
